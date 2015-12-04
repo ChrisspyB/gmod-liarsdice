@@ -1,0 +1,9 @@
+"AddonInfo"
+{
+	"name"        "Liar's Dice"
+	"version"     "1"
+	"author_name" "ChrisspyB"
+	"author_url"  ""
+	"info"        "Play Liar's Dice with up to 4 players."
+	"override"    "0"
+}
