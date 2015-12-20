@@ -95,10 +95,10 @@ function ENT:Initialize()
 		tbl:SetMoveType( MOVETYPE_NONE )
 		tbl:SetPos(pos)
 		
-		tbl:SetHealth(100000) -- preferably indestructable...*
+		tbl:SetHealth(100000) 	-- *Preferably indestructable
 		self.tableEnt = tbl
 		
-		
+
 		self.camera = ents.Create( "prop_physics" )
 		self.camera:SetModel(MODELS["camera"])
 		self.camera:SetPos(pos+Vector(0,0,40))
@@ -108,22 +108,31 @@ function ENT:Initialize()
 		self.camera:SetSolid(SOLID_NONE)	
 		self.camera:SetParent(tbl)	
 		
-		self.chairDir = {} --list of unit vectors from pos to chair, useful for camera
+		self.chairDir = {} 		-- List of unit vectors from pos to chair, useful for camera. * Is this in use?
 		self.chairEnts = {}
 		self:AddChairs(1)
 		
 		self.gameInProg = false;
-		self.players = {}
-		self.maxDice = 5 -- number of dice allowed in current table
+		self.players 	= {}
+		self.maxDice 	= 5 	-- Number of dice allowed in current table
 		
 		self:SetGameState(STATE_presetup)
 		self.playerInfo = {}
-		self.lastBet = {}
-		self.turnIndex = 1 --whose turn it is. Player 1 always goes first on round 1
-		self.canSpotOn = false --Are spot on rules enabled?
-		self.canWild = false --Are wild ones enabled?
-		self.wildOdds = 0 -- Probability that any round will be a wild round
-		self.wildRound = false --Are wild ones enabled?
+		
+		self.playerData = {
+			['isAI'] 	= false,
+			['ply']		= NULL,
+			['#dice']	= 0,
+			['n']		= 0,
+			['d']		= 0
+		}
+		self.lastBet 	= {}
+		self.turnIndex 	= 1 	-- Whose turn it is. Player 1 always goes first on round 1
+		self.canSpotOn 	= false -- Are spot on rules enabled?
+		self.canWild 	= false -- Can wild rounds occur?
+		self.wildRound 	= false -- Is this round a wild round?
+		self.wildOdds 	= 0 	-- Probability of a wild round occuring (if enabled)
+
 
 		-- self.camPlace = {} -- [i][1]["pos"] [i][1]["ang"] i = player j = which placement 
 	end
@@ -149,22 +158,21 @@ function ENT:Think()
 end
 
 function IsBluff(dice, n, d, spoton, wild)
--- Determines if a bet is a bluff
---
--- dice:	table containing all the dice currently in play
--- n:		number of dice in the bet
--- d:		dice's face (1-6) in the bet
--- spoton:	are we checking for a spot-on?
--- 			s=false: Returns true if t has at least n dice of face d
--- 			s=true: Returns true if t has exactly n dice of face d
--- wild:	are wild ones enabled?
+--	Determines if a bet is a bluff
+--	
+--	dice:	table containing all the dice currently in play
+--	n:		number of dice in the bet
+--	d:		dice's face (1-6) in the bet
+--	spoton:	are we checking for a spot-on?
+--				s=false: Returns true if t has at least n dice of face d
+--				s=true: Returns true if t has exactly n dice of face d
+--	wild:	are wild ones enabled?
 	
 	local spoton = spoton or false
 	local wild = wild or false
 	local a = 0
 	for i=1,#dice do
 		for j=1,#dice[i] do
-			print('check',dice[i][j],d)
 			if dice[i][j]==d or (wild and dice[i][j]==1) then
 				a=a+1
 				if  spoton and a>n then return false end 
@@ -173,7 +181,7 @@ function IsBluff(dice, n, d, spoton, wild)
 	end
 	if spoton and a==n then return true
 	elseif a<n and not spoton then return true end 
-	print('generic false',spoton,a,n)
+
 	return false
 end
 
@@ -194,39 +202,45 @@ function SortDice(dice)
 end
 
 if SERVER then
-	function ENT:SetupGame(p,d,h)
+	function ENT:SetupGame(p,d,ply)
 	--	Performs the preliminary setup for a new ld game.
 	--	Specifically *
-	--	p:	number of players
-	--	d:	initial number of dice
-	--	h:	h is what exactly? *
+	--	p:		number of players
+	--	d:		initial number of dice
+	--	ply:	ply is what exactly? *3
 		self.maxDice = d
 		self:AddChairs(p)
 		self:SetGameState(STATE_pregame)
 		self.playerInfo={}
-		for i=1, p do
-			self.playerInfo[i]={}
-			self.playerInfo[i][1]=false	-- isAi
-			self.playerInfo[i][2]=NULL	-- player obj
-			self.playerInfo[i][3]=d
+		
+		for i=1, p do 
+			self.playerInfo[i] = {
+			['isAI'] 	= false,
+			['ply']		= NULL,
+			['#dice']	= d,
+			['n']		= 0,
+			['d']		= 0}
 		end
-		self.playerInfo[1][2]=h
+
+		self.playerInfo[1]['ply']=ply
 		net.Start('ldPreGameJoin')
 			net.WriteBool(self.canSpotOn)
 			net.WriteBool(self.canWild) --*Needed?
-		net.Send(h)
+		net.Send(ply)
 	end
 	function ENT:BeginGame()
 	--	Initiates the ld game.
 		self.gameInProg=true
 		self:SetGameState(STATE_gamestart)
+		
+		print ('hmm2',1,self.playerInfo[1]['isAI'])
 
 		self:BeginRound()
 	end
 	function ENT:BeginRound()
 	--	Begins a new round: rolls the dice and sends them to players.
 	--	*consider grouping camera stuff into its own function
-		print('Begin round has been called',#self.players)
+		print('A new round has begun. Number of humans: ',#self.players)
 		self.cameraIndex = 1
 		timer.Create('CameraTimer',1,0, function()
 			if not IsValid(self.camera) then timer.Stop('CameraTimer') return end --* ideally the timer would also destroy it self
@@ -256,25 +270,27 @@ if SERVER then
 				self.wildRound = false
 			end
 		end
-		if self.playerInfo[self.turnIndex][1] then
-			print('ai timer')
+		if self.playerInfo[self.turnIndex]['isAI'] then
+			print ('hmm1',self.turnIndex,self.playerInfo[self.turnIndex]['isAI'])
+			
 			timer.Simple(2, function() 	
 				if not IsValid(self) then return end
+				print('SOURCE 1')
 				self:NextMoveAI(self.turnIndex)  
 			end)
 		end
 		for i=1, #self.playerInfo do
 			if self.chairEnts[i].diceNo<1 then
-				if self.playerInfo[i][1] then
+				if self.playerInfo[i]['isAI'] then
 					self:RemoveAI(i)
-				elseif self.playerInfo[i][2]:IsPlayer() then
-		--			self.playerInfo[i][2]:ExitVehicle()
+				elseif self.playerInfo[i]['ply']:IsPlayer() then
+		--			self.playerInfo[i]['ply']:ExitVehicle()
 				end
 			end
-			self.playerInfo[i][3] = self.chairEnts[i].diceNo
-			self.playerInfo[i][4] = 0
-			self.playerInfo[i][5] = 0
-			if self.playerInfo[i][2]:IsPlayer() or self.playerInfo[i][1] then
+			self.playerInfo[i]['#dice'] = self.chairEnts[i].diceNo
+			self.playerInfo[i]['n'] = 0
+			self.playerInfo[i]['d'] = 0
+			if self.playerInfo[i]['isAI'] or self.playerInfo[i]['ply']:IsPlayer() then
 				self.chairEnts[i]:Fire('lock')
 				self:GenDice(self.chairEnts[i])
 			else
@@ -297,12 +313,11 @@ if SERVER then
 			self:EndGame(i)
 			return
 		end
-		self.playerInfo[i][4]=n --*needed?
-		self.playerInfo[i][5]=d --*needed?
+		self.playerInfo[i]['n']=n --*needed?
+		self.playerInfo[i]['d']=d --*needed?
 		self.lastBet[1]=n
 		self.lastBet[2]=d
 		self.lastBet[3]=i
-		print(i,n,d)
 		net.Start('ldMakeBet')
 			net.WriteInt(i,5)
 			net.WriteInt(n,9)
@@ -310,7 +325,8 @@ if SERVER then
 		net.Send(self.players)
 		
 		self.turnIndex=j
-		if self.playerInfo[j][1] then
+		if self.playerInfo[j]['isAI'] then
+			print('SOURCE 2')
 			self:NextMoveAI(j)
 		end
 	end
@@ -326,33 +342,30 @@ if SERVER then
 			dTable[i]=self.chairEnts[i].dice
 		end
 		local bluffing = IsBluff(dTable,self.lastBet[1],self.lastBet[2],spoton,self.wildRound)
-		print(bluffing,spoton)
 		net.Start('ldCallBluff')
 			net.WriteTable(dTable) -- *Should they get this at the start? --*Should bluff really be calculated both client and serverside?
 			net.WriteBool(spoton)
 		net.Send(self.players)
 		
-		print('bluffing:',bluffing,'spot:',spoton)
 		if bluffing and not spoton then
 			--Guy was caught lying and spot on was not called. Guy loses die
 			self.chairEnts[self.lastBet[3]].diceNo=self.chairEnts[self.lastBet[3]].diceNo-1
-			self.playerInfo[self.lastBet[3]][3] = self.chairEnts[self.lastBet[3]].diceNo --*would rather not be using two identical vars
+			self.playerInfo[self.lastBet[3]]['#dice'] = self.chairEnts[self.lastBet[3]].diceNo --*would rather not be using two identical vars
 			self.turnIndex=self.lastBet[3]
 			print(self.lastBet[3]..' loses a die')
 			
 		elseif bluffing and spoton then
 			--Caught by a spot on. All but the caller lose a die.
-			print('SERVER HAS SEEN THE SPOT ON')
 			for i=1,#self.playerInfo do
 				if i~=index then
 					self.chairEnts[i].diceNo = self.chairEnts[i].diceNo - 1--*would rather not be using two identical vars
-					self.playerInfo[i][3] = self.chairEnts[i].diceNo
+					self.playerInfo[i]['#dice'] = self.chairEnts[i].diceNo
 				end
 			end
 		else
 			--Guy was telling the truth. Caller loses die
 			self.chairEnts[index].diceNo=self.chairEnts[index].diceNo-1
-			self.playerInfo[index][3] = self.chairEnts[index].diceNo --*would rather not be using two identical vars
+			self.playerInfo[index]['#dice'] = self.chairEnts[index].diceNo --*would rather not be using two identical vars
 			self.turnIndex=index
 			print(index..' loses a die')
 		end
@@ -408,8 +421,6 @@ if SERVER then
 			t[i]=math.random(1,6)
 		end
 		chair.dice=SortDice(t)
-			
-			if DEBUGMODE then print('dice',chair.index,table.concat(chair.dice,', ')) end
 		
 		if not IsValid(chair:GetDriver()) then return end
 		net.Start('ldNewRound')
@@ -459,8 +470,8 @@ if SERVER then
 	--	i:		index of player being updated
 	--	isAI:	is this player an AI?
 	--	ply:	the player being assigned the index
-		self.playerInfo[i][1]=isAI
-		self.playerInfo[i][2]=ply
+		self.playerInfo[i]['isAI']=isAI
+		self.playerInfo[i]['ply']=ply
 		net.Start('ldPlayerInfoUpdate')
 			net.WriteInt(i,5)
 			net.WriteBool(isAI)
@@ -476,7 +487,6 @@ if SERVER then
 			Might need to do validity checks
 			Might need to act differently depending on game state: EG LOCK SEAT IF GAME IN PROG, ETC
 		]]
-		print(#self.players)
 		for i=1,#self.players do
 			if self.players[i]==ply then
 				table.remove(self.players,i)
@@ -498,14 +508,14 @@ if SERVER then
 		ply.ldEnt = NULL
 		
 		
-		if DEBUGMODE then 
-			print(ply:Nick()..' has left a Liars Dice Game')
-			local str=tostring(#self.players)..' remaining player(s): '
-			for i=1,#self.players do
-				str = str..self.players[i]:Nick()..', '
-			end
-			print(str)
+		
+		print(ply:Nick()..' has left a Liars Dice Game')
+		local str=tostring(#self.players)..' remaining player(s): '
+		for i=1,#self.players do
+			str = str..self.players[i]:Nick()..', '
 		end
+		print(str)
+		
 		
 	end
 	function ENT:NewPlayer(ply)
@@ -513,7 +523,7 @@ if SERVER then
 	--	ply:	Player to add
 		if self.gameInProg then
 			--this should not be reachable
-			if DEBUGMODE then print(tostring(ply)..' cannot join liars dice: game in progress')end
+			print(tostring(ply)..' cannot join liars dice: game in progress')
 			return
 		end
 
@@ -529,8 +539,8 @@ if SERVER then
 			local i = ply.ldChair.index
 			ply.ldEnt = self
 			table.insert(self.players,ply)
-			self.playerInfo[i][1]=false
-			self.playerInfo[i][2]=ply
+			self.playerInfo[i]['isAI']=false
+			self.playerInfo[i]['ply']=ply
 			net.Start('ldPreGameJoin')
 				net.WriteBool(self.canSpotOn)
 				net.WriteBool(self.canWild)
@@ -542,21 +552,17 @@ if SERVER then
 
 		else return end
 		
-		
 		if self:GetGameState()==STATE_pregame then
 			
 		end		
 		
-		if DEBUGMODE then 
-			print(ply:Nick()..' has entered a Liars Dice Game')
-			local str=tostring(#self.players)..' player(s) playing: '
-			for i=1,#self.players do
-				str = str..
-				self.players[i]:Nick()..', '
-			end
-			print(str)
+		print(ply:Nick()..' has entered a Liars Dice Game')
+		local str=tostring(#self.players)..' player(s) playing: '
+		for i=1,#self.players do
+			str = str..
+			self.players[i]:Nick()..', '
 		end
-		
+		print(str)
 	end
 	function ENT:NextPlayerInd(i)
 	--	Returns the index of the player whose turn it is after player i.
@@ -567,7 +573,7 @@ if SERVER then
 			if j==i then
 				break
 			elseif j>#self.playerInfo then j=0
-			elseif self.playerInfo[j][3]>0 and (self.playerInfo[j][1] or self.playerInfo[j][2]:IsPlayer()) then
+			elseif self.playerInfo[j]['#dice']>0 and (self.playerInfo[j]['isAI'] or self.playerInfo[j]['ply']:IsPlayer()) then
 				break
 			end
 		end
@@ -576,17 +582,22 @@ if SERVER then
 	function ENT:NewAI(i)
 	--	Adds a new AI player to the ld game.
 	--	i:	player index to be assigned to the new AI.
-		self.playerInfo[i][1]=true
-		self.playerInfo[i][2]=NULL
+		self.playerInfo[i]['isAI']=true
+		self.playerInfo[i]['ply']=NULL
 		self:UpdatePlayerInfo(i,true,NULL)
 		self.chairEnts[i]:Fire('lock')
 		self.chairEnts[i]:SetColor(Color(0,0,255))
+		for _,t in pairs(self.playerInfo) do
+			for k,v in pairs(t)do
+				print(k,v)
+			end
+		end
 	end
 	function ENT:RemoveAI(i)
 	--	Removes an AI player from the ld game.
 	--	i:	player index of the AI to be removed.
-		self.playerInfo[i][1]=false
-		self.playerInfo[i][2]=NULL
+		self.playerInfo[i]['isAI']=false
+		self.playerInfo[i]['ply']=NULL
 		self:UpdatePlayerInfo(i,false,NULL)
 		if gameInProg then
 			self.chairEnts[i]:SetColor(Color(255,0,0))
@@ -599,6 +610,7 @@ if SERVER then
 	--	Calculates an AI's next move.
 	--	Eventually, will properly consider bets, etc based on AI's difficulty setting.
 	--	i:	player index of AI whose move is being calculated.
+		print('calculating ai move now...')
 		local a = math.random()
 		local n=self.lastBet[1] 
 		local d=self.lastBet[2]
@@ -681,7 +693,6 @@ if SERVER then
 		ply.ldEnt:BluffCalled(ply.ldChair.index,b)
 	end)
 	net.Receive("ldNewRound", function(len,ply)
-		print('Calling begin round')
 		ply.ldEnt:BeginRound()
 	end)
 	net.Receive('ldWinGame',function(len,ply)
@@ -725,7 +736,13 @@ if CLIENT then
 	} )
 	
 	local conStrings = {} -- For displaying player info during pre game
-	local playerInfo = {{false,NULL}} --[][1] = isAI; [][2] = Player; [][3] = #dice; [][4] = last bet:n; [][5] = last bet:d; where n=#dice, d=number on dice**Maybe don't record their last bet
+	local playerInfo = {
+			{['isAI'] 	= false,
+			['ply']		= NULL,
+			['#dice']	= 0,
+			['n']		= 0,
+			['d']		= 0}
+		}
 	local lastBet = {0,0,0} -- n,d,plyInd
 	local turnIndex = 1 -- player index whose turn it is
 	local dTable = {} -- Received at end of round
@@ -745,7 +762,7 @@ if CLIENT then
 		while true do 
 			j=j+1
 			if j>#playerInfo then j=0
-			elseif playerInfo[j][3]>0 and (playerInfo[j][1] or playerInfo[j][2]:IsPlayer()) then
+			elseif playerInfo[j]['#dice']>0 and (playerInfo[j]['isAI'] or playerInfo[j]['ply']:IsPlayer()) then
 				break
 			elseif j==i then
 				error('Could not find next player')
@@ -834,30 +851,29 @@ if CLIENT then
 	--	Draws each player's panel, displays their name profile_pic and last bet.
 	--	parent:	VGUI object onto which the panel is attached.
 	--	i:		index of player whose panel is being drawn.
-		local inf = playerInfo[i]
-		local ply = inf[2]
+		local data = playerInfo[i]
+		local ply = data['ply']
 		local col = Color(100,100,100)
 		local colTurn = Color(25,150,25)
-		if  inf[3]>0 and ( ply:IsPlayer() or inf[1] )then col = Color(50,50,175) end
+		if  data['#dice']>0 and ( ply:IsPlayer() or data['isAI'] )then col = Color(50,50,175) end
 		local color1 = col
 		local color1B = BrightenCol(col,40)
 		local color2 = colTurn
 		local color2B = BrightenCol(colTurn,40)
 		
-		
 		local plyPanel = vgui.Create('DPanel',parent)
 		plyPanel:SetSize(ScrW()/4,90)
 		plyPanel:SetPos(3*ScrW()/4,90*(i-1))
-		if inf[3]>0 and (ply:IsPlayer() or inf[1]) then
+		if data['#dice']>0 and (ply:IsPlayer() or data['isAI']) then
 			local name = 'Bot Jr.'
 			if ply:IsPlayer() then name = ply:Nick() end
-			local str = 'Has '..inf[3]..' dice'
+			local str = 'Has '..data['#dice']..' dice'
 			
 			function plyPanel:Paint(w,h)
 				draw.RoundedBox(4,0,0,w,h, Color(0,0,0,255))
 				if i==turnIndex then
 					timeleft = timer.TimeLeft('AutoBid') or nil
-					if not timeleft == nil:
+					if timeleft ~= nil then
 						timepassed = MAXTURNTIME - timeleft
 						drawcol = Color(
 							math.floor(colTurn.r + timepassed*(200-colTurn.r)/MAXTURNTIME),
@@ -873,7 +889,7 @@ if CLIENT then
 				draw.SimpleText(name,"DermaLarge",80,10,Color(255,255,255,255))
 				draw.SimpleText(str,"ldDerma20",80,40,Color(255,255,255,255))
 				draw.SimpleText("Last Bet: ","ldDerma20",80,60,Color(255,255,255,255))
-				DrawBet(200,60,0,inf[4],inf[5])
+				DrawBet(200,60,0,data['n'],data['d'])
 			end
 			
 			local av = vgui.Create("AvatarImage", plyPanel)
@@ -913,8 +929,7 @@ if CLIENT then
 	--	Draws the player panels displayed on the results screen.
 	--	parent:	VGUI object onto which the panel is attached.
 	--	i:		index of player whose panel is being drawn.
-		local inf = playerInfo[i]
-		local ply = playerInfo[i][2]
+		local ply = playerInfo[i]['ply']
 		local panel = vgui.Create('DPanel',parent)
 		local h = math.Round((ScrH()-20)/MAXPLAYERS)
 		playerResultsPanel[i]=panel
@@ -953,8 +968,8 @@ if CLIENT then
 	--	Generates strings to be drawn, indicating the state of a particular chair.
 	--	i:	chair/player index...*
 		local str
-		if playerInfo[i][1] then str = ': AI Player' 
-		elseif IsValid(playerInfo[i][2]) then str = ': '..playerInfo[i][2]:Nick()
+		if playerInfo[i]['isAI'] then str = ': AI Player' 
+		elseif IsValid(playerInfo[i]['ply']) then str = ': '..playerInfo[i]['ply']:Nick()
 		else str = ': Empty' end
 		conStrings[i]='Chair '..i..str
 
@@ -1040,7 +1055,6 @@ if CLIENT then
 		wildSlid:SetValue(0.2)
 		wildSlid:Hide()
 		function wildBox:OnChange(b)
-			print(b)
 			if b then
 				wildSlid:Show()
 			else
@@ -1065,11 +1079,11 @@ if CLIENT then
 			totalDice = p*d
 			for i=1, p do
 				playerInfo[i]={}
-				playerInfo[i][1]=false	-- isAi
-				playerInfo[i][2]=NULL	-- player obj
-				playerInfo[i][3]=d	-- #dice
+				playerInfo[i]['isAI']=false	
+				playerInfo[i]['ply']=NULL	
+				playerInfo[i]['#dice']=d	
 			end
-			playerInfo[1][2]=LocalPlayer()
+			playerInfo[1]['ply']=LocalPlayer()
 			for i=1, p do GenConStrings(i) end 
 			local f = wildSlid:GetValue() or 0
 			net.Start('ldNewGame')
@@ -1125,8 +1139,8 @@ if CLIENT then
 		
 		LeaveButton(frame,20,260)
 		
+		if LocalPlayer()~=playerInfo[1]['ply'] then return end 
 		
-		if LocalPlayer()~=playerInfo[1][2] then return end 
 		local but_bot={}
 		for i=1, #playerInfo do 
 			but_bot[i] = vgui.Create("DButton",frame)
@@ -1139,24 +1153,22 @@ if CLIENT then
 		end
 		for k,v in pairs(but_bot) do
 			function v:Paint(w,h)
-				-- if not playerInfo[v.index][1] and playerInfo[v.index][2]==NULL then 
-					draw.RoundedBox(4,0,0,w,h,self.col)
-				-- end
+				draw.RoundedBox(4,0,0,w,h,self.col)
 			end
 			function v:DoClick()
-				if playerInfo[v.index][1]==true then
+				if playerInfo[v.index]['isAI'] then --*6666666
 					--Remove AI
-					playerInfo[v.index][1]=false
+					playerInfo[v.index]['isAI']=false
 					self.col = Color(50,100,50,255)
 					self:SetText('ADD')
 					net.Start('ldRemoveAI')
 						net.WriteInt(v.index,5)
 					net.SendToServer()
 					
-				elseif not playerInfo[v.index][2]:IsPlayer() then
+				elseif not playerInfo[v.index]['ply']:IsPlayer() then
 					--this is where you put the "make AI man" code
-					playerInfo[v.index][1]=true
-					playerInfo[v.index][2]=NULL
+					playerInfo[v.index]['isAI']=true
+					playerInfo[v.index]['ply']=NULL
 					self.col = Color(100,50,50,255)
 					self:SetText('REM')
 					net.Start('ldNewAI')
@@ -1181,7 +1193,6 @@ if CLIENT then
 	end
 	local function DrawRoundStart()
 	--	Draws the main game display.
-		
 		wildRound=net.ReadBool() or false --MAKE SOME KIND OF NOTIFICATION*
 		if wildRound then chat.AddText('WOW THIS IS ONE WILDDDDD ROOOOOOOOOUUUUUNNNNDDDD') end
 		turnIndex=net.ReadInt(5)
@@ -1215,9 +1226,9 @@ if CLIENT then
 		end
 		
 		for i=1, #playerInfo do
-			if LocalPlayer()==playerInfo[i][2] then localIndex = i end --*This only needs to be done once a GAME
-			playerInfo[i][4]=0
-			playerInfo[i][5]=0
+			if LocalPlayer()==playerInfo[i]['ply'] then localIndex = i end --*This only needs to be done once a GAME
+			playerInfo[i]['n']=0
+			playerInfo[i]['d']=0
 			DrawPlayerPanel(frame,i)
 		end		
 		
@@ -1235,7 +1246,7 @@ if CLIENT then
 		
 		-- local betFrame =  vgui.Create("DFrame")
 		timer.Create('AutoBid',MAXTURNTIME,0, function()
-			print('Autobid Timer called') -- SOME KIND OF NOTIFICATION*
+			print('Times up, autobidding...') -- *SOME KIND OF NOTIFICATION
 			if not localIndex==turnIndex then 
 				return 
 			end
@@ -1423,44 +1434,41 @@ if CLIENT then
 			
 			--CONSIDER MAKING THIS ONE FUNCTION
 			if bluffing and not spotOnCalled then
-				playerInfo[lastBet[3]][3]=playerInfo[lastBet[3]][3]-1
+				playerInfo[lastBet[3]]['#dice']=playerInfo[lastBet[3]]['#dice']-1
 				playerResultsPanel[lastBet[3]].color=Color(180,0,0,200)
 				playerResultsPanel[turnIndex].color=Color(0,180,0,200)
 				
-				print(lastBet[3]..' loses a die')
-				if playerInfo[lastBet[3]][1] then
+				if playerInfo[lastBet[3]]['isAI'] then
 					msg = 'AI Player '..lastBet[3]..' loses a die'	
-				elseif IsValid (playerInfo[lastBet[3]][2]) then
-					msg = playerInfo[lastBet[3]][2]:Nick()..' loses a die'	
+				elseif  playerInfo[lastBet[3]]['ply']:IsPlayer() then --*77777777
+					msg = playerInfo[lastBet[3]]['ply']:Nick()..' loses a die'	
 				end
 				
 			elseif bluffing and spotOnCalled then
 				for i=1,#playerInfo do
 					if i~=turnIndex then
-						playerInfo[i][3]=playerInfo[i][3]-1
+						playerInfo[i]['#dice']=playerInfo[i]['#dice']-1
 						playerResultsPanel[i].color=Color(180,0,0,200)
 					else
 						playerResultsPanel[turnIndex].color=Color(0,180,0,200)
 					end
 				end
 			else
-				playerInfo[turnIndex][3]=playerInfo[turnIndex][3]-1
+				playerInfo[turnIndex]['#dice']=playerInfo[turnIndex]['#dice']-1
 				playerResultsPanel[turnIndex].color=Color(180,0,0,200)
 				playerResultsPanel[lastBet[3]].color=Color(0,180,0,200)
 				
-				print(turnIndex..' loses a die')
-				if playerInfo[lastBet[3]][1] then
+				if playerInfo[lastBet[3]]['isAI'] then
 					msg = 'AI Player '..turnIndex..' loses a die'	
-				elseif IsValid (playerInfo[turnIndex][2]) then
-					msg = playerInfo[turnIndex][2]:Nick()..' loses a die'	
+				elseif IsValid (playerInfo[turnIndex]['ply']) then
+					msg = playerInfo[turnIndex]['ply']:Nick()..' loses a die'	
 				end
 			end
 			
 			totalDice = totalDice - 1
 			
-			if playerInfo[localIndex][3]==totalDice then
-				--YAY YOU WIN DO WIN STUFF HERE. 
-				print('You won...')
+			if playerInfo[localIndex]['#dice']==totalDice then
+				--YAY YOU WIN DO WIN STUFF HERE.
 				net.Start('ldWinGame')
 				net.SendToServer()			
 			end
@@ -1473,8 +1481,8 @@ if CLIENT then
 	--PREGAME UPDATE COULD BE USED FOR ALL UPDATES
 	net.Receive('ldPlayerInfoUpdate',function()
 		local i = net.ReadInt(5)
-		playerInfo[i][1] = net.ReadBool()
-		playerInfo[i][2] = net.ReadEntity()
+		playerInfo[i]['isAI'] = net.ReadBool()
+		playerInfo[i]['ply'] = net.ReadEntity()
 		GenConStrings(i) --* do a state check here
 	end)
 	net.Receive("ldPreGameJoin", function() 
@@ -1497,8 +1505,8 @@ if CLIENT then
 		local d = net.ReadInt(4)
 		local j = NextPlayerInd(i)
 		turnIndex=j
-		playerInfo[i][4]=n
-		playerInfo[i][5]=d
+		playerInfo[i]['n']=n
+		playerInfo[i]['d']=d
 		lastBet[1]=n
 		lastBet[2]=d
 		lastBet[3]=i

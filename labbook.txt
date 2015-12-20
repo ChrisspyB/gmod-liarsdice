@@ -22,3 +22,19 @@ Might shift focus to updating UI, then ensuring players aren't sent superfluous 
 Summary:
 + Added comments here and there
 + Player's panel gets progressively redder when its their turn.
+
+---------
+20.12.15
+---------
+Working more on making simplifying the code:
+	playerinfo[1][1] ---> playerinfo[1]['isAI']
+	etc.
+So...I've done this but in the process I've somehow made the server treat each player as an AI, how weird.
+	Figured it out, I was doing this:
+		data = {stuff}
+		for i in some range:
+			playerinfo[i] = data
+	This meant playerinfo[any number] all stored the same data, not a copy of the data.
+	Fix:
+		for i in some range:
+			playerinfo[i] = {stuff}
