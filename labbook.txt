@@ -38,3 +38,4 @@ So...I've done this but in the process I've somehow made the server treat each p
 	Fix:
 		for i in some range:
 			playerinfo[i] = {stuff}
+			
