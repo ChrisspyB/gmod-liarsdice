@@ -1,0 +1,24 @@
+=========
+GLua Book
+=========
+
+---------
+19.12.15
+---------
+
+Going to add some comments to explain how I think each function works, should help me get back into the swing of things.
+Main goal for now is to clean up the code:
+	Strings
+	Better variable names
+An issue that is becoming increasing apparent is my inconsistency when refererring the players:
+	sometimes I refer to the player object
+	sometimes their chair
+	sometimes their index
+I had reasons for this, but I should act to make it consistent.
+For the sake of the game, maybe shouldn't record each players last bet (makes bluffing harder).
+	Overruled: Will continue to display each player's last bet because it looks nice.
+Might shift focus to updating UI, then ensuring players aren't sent superfluous information.
+
+Summary:
++ Added comments here and there
++ Player's panel gets progressively redder when its their turn.

@@ -837,13 +837,13 @@ if CLIENT then
 		local inf = playerInfo[i]
 		local ply = inf[2]
 		local col = Color(100,100,100)
-		local colTurn = Color(200,150,25)
-		if  inf[3]>0 and ( ply:IsPlayer() or inf[1] )then col = Color(50,50,175)
-		end
+		local colTurn = Color(25,150,25)
+		if  inf[3]>0 and ( ply:IsPlayer() or inf[1] )then col = Color(50,50,175) end
 		local color1 = col
 		local color1B = BrightenCol(col,40)
 		local color2 = colTurn
 		local color2B = BrightenCol(colTurn,40)
+		
 		
 		local plyPanel = vgui.Create('DPanel',parent)
 		plyPanel:SetSize(ScrW()/4,90)
@@ -852,13 +852,22 @@ if CLIENT then
 			local name = 'Bot Jr.'
 			if ply:IsPlayer() then name = ply:Nick() end
 			local str = 'Has '..inf[3]..' dice'
+			
 			function plyPanel:Paint(w,h)
-				-- somewhere, check if it is this guy's turn and color accordingly (either green or time dependent gradient)
 				draw.RoundedBox(4,0,0,w,h, Color(0,0,0,255))
 				if i==turnIndex then
-					draw.RoundedBox(4,1,1,w-2,h-2, colTurn)
-					if (timer.TimeLeft('AutoBid')~=nil and timer.TimeLeft('AutoBid')>0) then 
-						draw.SimpleText(tostring(math.floor(timer.TimeLeft('AutoBid'))),'default',w-20,20,Color(255,255,0)) 
+					timeleft = timer.TimeLeft('AutoBid') or nil
+					if not timeleft == nil:
+						timepassed = MAXTURNTIME - timeleft
+						drawcol = Color(
+							math.floor(colTurn.r + timepassed*(200-colTurn.r)/MAXTURNTIME),
+							math.floor(colTurn.g - colTurn.g*timepassed/MAXTURNTIME),
+							math.floor(colTurn.b - colTurn.b*timepassed/MAXTURNTIME)
+						)
+					else drawcol = colTurn end
+					draw.RoundedBox(4,1,1,w-2,h-2, drawcol)
+					if (timeleft~=nil and timeleft>0) then 
+						draw.SimpleText(tostring(math.floor(timeleft)),'default',w-20,20,Color(255,255,0)) 
 					end
 				else draw.RoundedBox(4,1,1,w-2,h-2, col) end
 				draw.SimpleText(name,"DermaLarge",80,10,Color(255,255,255,255))
