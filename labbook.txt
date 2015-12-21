@@ -38,4 +38,13 @@ So...I've done this but in the process I've somehow made the server treat each p
 	Fix:
 		for i in some range:
 			playerinfo[i] = {stuff}
-			
+After some more cleanup, now going to work on some AI features, namely:
+	AI with different names, which dictates how they act.
+	All AI will call bluff for trivial cases
+
+The ground works for this have been set, now it's just some maths
+
+Summary:
++ Improved readability
++ Host can now choose AI difficulty (currently all act the same)
++ AI display name depends on difficulty
