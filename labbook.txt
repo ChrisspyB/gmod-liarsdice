@@ -48,3 +48,8 @@ Summary:
 + Improved readability
 + Host can now choose AI difficulty (currently all act the same)
 + AI display name depends on difficulty
+
+---------
+22.12.15
+---------
+Made a simple function to count the number of dice of a particular face, in a list (since this is used all over the place.)

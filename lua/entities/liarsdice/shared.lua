@@ -42,7 +42,7 @@ local MODELS = {
 }
 
 local AI_type = {
-	['debug']	= 1,
+	['trivial']	= 1,
 	['easy']	= 2,
 	['medium']	= 3,
 	['hard']	= 4}
@@ -191,7 +191,7 @@ end
 function SortDice(dice)
 --	Sorts a list of dice such that they are in numberical order (from 1 to 6)
 --	Is there a more efficent way? Probably, but this is sufficient.
---	dice:		table of dice
+--	dice:		table of dice.
 	local a = {}
 	for i=1,6 do
 		for j=1, #dice do
@@ -203,6 +203,18 @@ function SortDice(dice)
 	end
 	return a 
 end
+
+function CountDice(dice,face,wild)
+--	Counts the number of dice of a particular face.
+--	ASSUMES THE DICE HAS BEEN SORTED ALREADY
+	count = 0
+	for d in dice do
+		if d>face then break
+		elseif d==face or (wild and d == 1) then count = count + 1 end
+	end
+	return count
+end
+
 
 if SERVER then
 
@@ -610,18 +622,14 @@ if SERVER then
 		local a = math.random()
 		local n=self.lastBet[1] 
 		local d=self.lastBet[2]
+		local dice = self.chairs[i].dice[i]
 		local dif = self.playerInfo[i]['dif']
 		local turndelay = AIDelay+math.Rand(0,AIDelaySpread)
-		if dif==AI_type['debug'] then
-			if n > self.totalDice then
-				timer.Simple(turndelay,self:BluffCalled(i))
-				return
-			end
-		else
-			if n > self.totalDice then
-				self:BluffCalled(i)
-				return
-			end
+		local faceNo = CountDice(dice,d)
+		
+		if n > self.totalDice - faceNo then -- bid is trivialy false
+			timer.Simple(turndelay,self:BluffCalled(i))
+			return
 		end
 		if a<0.5 and d<6 then
 			d=d+1
