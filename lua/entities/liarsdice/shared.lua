@@ -42,16 +42,16 @@ local MODELS = {
 }
 
 local AI_type = {
-	['trivial']	= 1,
-	['easy']	= 2,
-	['medium']	= 3,
-	['hard']	= 4}
+	['easy']	= 1,
+	['medium']	= 2,
+	['hard']	= 3,
+	}
 
 local AI_name = {'Alice', 'Bob', 'Charlie', 'Diana', 'Eric'}
 	
 local MAXPLAYERS 		= 6 --	Things will break if this is greater than 4bit
 local MAXDICE 			= 6	--	Things will break if this is greater than 4bit
-local MAXTURNTIME		= 15--	Players who take too long will auto-bid
+local MAXTURNTIME		= 600--	Players who take too long will auto-bid
 local CAMERADELAY		= 5 --	Time delay between camera switching
 local AIDelay			= 0.5--	Min time bots take to make their turns
 local AIDelaySpread		= 0.2--	Max time for a bot is this plus min delay
@@ -206,17 +206,73 @@ end
 
 function CountDice(dice,face,wild)
 --	Counts the number of dice of a particular face.
---	ASSUMES THE DICE HAS BEEN SORTED ALREADY
+--	Assumes dice have been sorted by SortDice
 	count = 0
-	for d in dice do
+	for _,d in ipairs(dice) do
 		if d>face then break
 		elseif d==face or (wild and d == 1) then count = count + 1 end
 	end
 	return count
 end
-
+function ListCountedDice(dice)
+--	Returns list stating how many of each die there is. a[4] = number of dice of face 4
+--	Assumes dice have been sorted by SortDice
+	a = {0,0,0,0,0,0}
+	for _,d in ipairs(dice) do 
+		for i=1,6 do
+			if d==i then a[i] = a[i] + 1 end
+			--elseif d>i then break end
+		
+		end
+	end
+	return a
+end
 
 if SERVER then
+	local function Factorial(n)
+	--	Returns the factorial of some number
+
+		local a = 1
+		if n<1 then return a
+		else
+			for i = 1,n do 
+				a = a * i 
+			end
+		end
+		return a
+	end
+	
+	local function SpotonOdds(N,n,wild)
+	--	Calculates the odds of there being exactly n dice of some face, in a set of N dice.
+	--	Wild:	Should wild-ones be included?
+		n = n or 0
+		wild = wild or false
+		if n>N then return 0 end
+		local p = wild and 1/3 or 1/6
+		return Factorial(N)*math.pow(p,n)*math.pow(1-p,N-n)/(Factorial(n)*Factorial(N-n))
+	end
+
+	local function BluffOdds(N,n,wild)
+	--	Calculates the odds of there being fewer than n dice of some face, in a set of N dice.
+	--	Wild:	Should wild-ones be included?
+	
+		print(N,n,wild)
+		wild = wild or false
+		local sum = 0
+		if n>N then return 1		
+		elseif n < N/2 then
+			for i = 0,n-1 do
+				sum = sum + SpotonOdds(N,i,wild)
+			end
+			return sum
+		else
+			for i = n,N do
+				sum = sum + SpotonOdds(N,i,wild)
+			end
+			return 1 - sum
+		end
+	end
+
 
 	function ENT:SetupGame(p,d,ply)
 	--	Performs the preliminary setup for a new ld game.
@@ -431,12 +487,13 @@ if SERVER then
 	function ENT:GenDice(chair)
 	--	Rolls dice and sends to the roller.
 	--	chair:	where the roller is sitting...*
-		local t = {}
+		local dice = {}
 		for i=1,chair.diceNo do 
-			t[i]=math.random(1,6)
+			dice[i]=math.random(1,6)
 		end
-		chair.dice=SortDice(t)
-		
+		chair.dice=SortDice(dice)
+		chair.faceNo=ListCountedDice(dice)
+		print(table.concat(chair.dice))
 		if not IsValid(chair:GetDriver()) then return end
 		net.Start('ldNewRound')
 			net.WriteBool(self.wildRound)
@@ -485,9 +542,10 @@ if SERVER then
 	--	i:		index of player being updated
 	--	isAI:	is this player an AI?
 	--	ply:	the player being assigned the index
-		dif = dif or 0
+		dif = dif or 1
 		self.playerInfo[i]['isAI']=isAI
 		self.playerInfo[i]['ply']=ply
+		self.playerInfo[i]['dif']=dif
 		net.Start('ldPlayerInfoUpdate')
 			net.WriteInt(i,5)
 			net.WriteBool(isAI)
@@ -597,7 +655,7 @@ if SERVER then
 	function ENT:NewAI(i,dif)
 	--	Adds a new AI player to the ld game.
 	--	i:	player index to be assigned to the new AI.
-		dif = dif or 0
+		dif = dif or 1
 		self.chairs[i]:Fire('lock')
 		self.chairs[i]:SetColor(Color(0,0,255))
 		self.totalPlayers = self.totalPlayers + 1
@@ -619,29 +677,100 @@ if SERVER then
 	--	Calculates an AI's next move.
 	--	Eventually, will properly consider bets, etc based on AI's difficulty setting.
 	--	i:	player index of AI whose move is being calculated.
-		local a = math.random()
+		local r = math.random()
+		local turndelay = AIDelay+math.Rand(0,AIDelaySpread)
+
 		local n=self.lastBet[1] 
 		local d=self.lastBet[2]
-		local dice = self.chairs[i].dice[i]
-		local dif = self.playerInfo[i]['dif']
-		local turndelay = AIDelay+math.Rand(0,AIDelaySpread)
-		local faceNo = CountDice(dice,d)
 		
-		if n > self.totalDice - faceNo then -- bid is trivialy false
-			timer.Simple(turndelay,self:BluffCalled(i))
+		if n==0 then -- AI has first move
+			local d_new,n_new = 0,0
+			for j=1,6 do
+				if self.wildRound and j==1 then j=2 end
+				if self.chairs[i].faceNo[j] > n_new then
+					d_new,n_new = j,self.chairs[i].faceNo[j] -- find most common face. k = face, h = how many.
+				end
+			end
+			timer.Simple(turndelay,function()
+				if not IsValid(self) then return end
+				self:NewBet(i,n_new,d_new) 
+				end)
 			return
 		end
-		if a<0.5 and d<6 then
-			d=d+1
-		else
-			n=n+1
-			if a<0.5 then d=math.random(1,6) end
+		
+		local dice = self.chairs[i].dice
+		local dif = self.playerInfo[i]['dif'] -- AI difficulty
+		local faceNo = self.chairs[i].faceNo[d]		
+		
+		local spotonOdds = self.spotonEnabled and SpotonOdds(self.totalDice,n,self.wildRound) or 0
+		local bluffOdds = BluffOdds(self.totalDice-#dice,n - faceNo,self.wildRound)
+		
+		-- if n > self.totalDice - (#dice-faceNo) then -- bid is trivialy false
+			-- print('bid is trivially false',1-bluffOdds)
+			-- timer.Simple(turndelay,function() self:BluffCalled(i) end)
+			-- return
+		-- end
+		
+		
+		print('truth odds',1- bluffOdds)
+		print('bluff odds',bluffOdds)
+		if bluffOdds > 0.5 then
+			timer.Simple(turndelay,function() self:BluffCalled(i) end)
+			return
 		end
-		if n<1 then n=1 end if d<1 then d=1 end
+		
+		local new_n = 6
+		local new_d = 1
+		-- if dif < AI_type['medium'] then
+			-- if r<0.5 and d<6 then
+				-- new_d=d+1
+			-- else
+				-- new_n=n+1
+				-- if r<0.5 then new_d=math.random(1,6) end
+			-- end
+		-- elseif dif < AI_type['hard'] then
+		local d1,n1 = 0,0
+		for j=1,6 do
+			if self.wildRound and j==1 then j=2 end
+			if self.chairs[i].faceNo[j] > n1 then
+				d1,n1 = j,self.chairs[i].faceNo[j] -- find most common face. k = face, h = how many.
+			end
+		end
+		--*
+		if d1<=d and d<6 then
+			local d2,n2 = 0,0	
+			for j=d+1,6 do
+				if self.chairs[i].faceNo[j] > n2 then
+					d2,n2 = j,self.chairs[i].faceNo[j] -- find most common face of k > d. k = face, h = how many.
+				end
+			end
+			-- Find safest bet:
+			if n2<=n1+1 then
+				new_d,new_n = d1,n1
+			else
+				new_d,new_n = d2,n2
+			end
+		else
+			new_d,new_n = d1,n1
+		end
+		-- end
+		
+		if new_n <= n then 
+			new_n = new_d<=d and n+1 or n 
+
+		end
+		
+		--if about to bet something 'too' improbable, call bluff instead.
+		print ('Odds of new bid being a bluff:',BluffOdds(self.totalDice-#dice,new_n - self.chairs[i].faceNo[new_d],self.wildRound))
+		if BluffOdds(self.totalDice-#dice,new_n - self.chairs[i].faceNo[new_d],self.wildRound) > 0.7 then
+			timer.Simple(turndelay,function() self:BluffCalled(i) end)
+			return
+		end
+		
 		timer.Simple(turndelay,function()
 			if not IsValid(self) then return end
 			if self.wildRound and d==1 then d=2 end
-				self:NewBet(i,n,d) 
+				self:NewBet(i,new_n,new_d) 
 			end 
 		)
 	end
@@ -766,7 +895,7 @@ if CLIENT then
 	local dTable = {} -- Received at end of round
 	local playerResultsPanel = {} -- For storing the final results display. Used for adjusting color of winner/loser
 	local totalDice = 0
-	local counter = 0 --* use curTime instead
+	local dice_counter = 0
 	local spotonEnabled = false
 	local wildRound = false 
 	local activeFrame
@@ -964,8 +1093,8 @@ if CLIENT then
 		end
 		local str = '+ '..count
 		if count>0 then 
-			counter = counter + count
-			str = str..'     Total:  '..counter
+			dice_counter = dice_counter + count
+			str = str..'     Total:  '..dice_counter
 		end
 		function panel:Paint(w,h)
 			draw.RoundedBox(4,0,0,w,h,panel.color)
@@ -1034,7 +1163,7 @@ if CLIENT then
 		plySlider:SetMin( 2 )				
 		plySlider:SetMax( MAXPLAYERS )				
 		plySlider:SetDecimals( 0 )
-		plySlider:SetValue(3)
+		plySlider:SetValue(MAXPLAYERS)
 		
 		local diceSlider = vgui.Create( "DNumSlider", frame )
 		diceSlider:SetPos( 25, 100 )		
@@ -1043,7 +1172,7 @@ if CLIENT then
 		diceSlider:SetMin( 1 )				
 		diceSlider:SetMax( MAXDICE )				
 		diceSlider:SetDecimals( 0 )	
-		diceSlider:SetValue(2)		
+		diceSlider:SetValue(MAXDICE)		
 
 		local spotBox = vgui.Create('DCheckBox',frame)
 		spotBox:SetPos(25,175)
@@ -1203,7 +1332,7 @@ if CLIENT then
 					for k,v in pairs(AI_type) do maxDif = maxDif + 1 end
 					difSlider:SetMax( maxDif )
 					difSlider:SetDecimals( 0 )
-					difSlider:SetValue(1)
+					difSlider:SetValue(2)
 					
 					local but_submit = vgui.Create("DButton",difFrame)
 					but_submit:SetPos(60,120)
@@ -1471,6 +1600,7 @@ if CLIENT then
 		end
 		
 		playerResultsPanel={}
+		dice_counter = 0 
 		for i=1, #playerInfo do
 			timer.Simple(i, function () 
 				if not IsValid(frame) then return end

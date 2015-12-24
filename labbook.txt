@@ -53,3 +53,10 @@ Summary:
 22.12.15
 ---------
 Made a simple function to count the number of dice of a particular face, in a list (since this is used all over the place.)
+Started working on probability calculations
+
+---------
+23.12.15
+---------
+AI are now function in a logical and playable manner, though are quite predictable (esp if you built them!).
+
